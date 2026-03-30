@@ -194,6 +194,20 @@ Note: the collection script imports `utils.config`, so the local collection envi
 
 ---
 
+## Team
+
+This project was developed by a five-member team.
+
+| Role | Name |
+| --- | --- |
+| Team Leader | Hong Sunghyun |
+| Member | Park Gyuhyeon |
+| Member | Song Seonghyeok |
+| Member | Lim Songju |
+| Member | Park Yonghui |
+
+---
+
 ## Repository Status
 
 This README reflects the current public snapshot of the repository. It documents the code and artifacts that are already included here, without assuming unpublished hardware specs, team metadata, or competition results.
