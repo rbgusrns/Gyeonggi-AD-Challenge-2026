@@ -1,0 +1,213 @@
+#include <Arduino.h>
+
+// ================================================================
+// [TEAM 1] 차선 주행용 파라미터 & 하드웨어 설정 (Original)
+// ================================================================
+const float LANE_KP = 3.4f;
+const int LANE_MAX_PWM = 230;
+const int LANE_MIN_PWM = 120;
+const int LANE_DEADZONE = 3;
+
+// ★ Team 1의 가변저항 값 (낮은 값이 왼쪽)
+const int LANE_ADC_LEFT = 280;   
+const int LANE_ADC_CENTER = 575; 
+const int LANE_ADC_RIGHT = 880;  
+
+// ================================================================
+// [TEAM 2] 장애물 회피용 파라미터 & 하드웨어 설정 (Original)
+// ================================================================
+const float AVOID_KP = 9.0f;      
+const float AVOID_KD = 20.0f;
+
+#define LC_TURN_PWM     254       
+#define LC_CORRECT_PWM  254
+#define LC_TURN_TIME    2700      
+#define LC_TOTAL_TIME   6800      
+#define SAFETY_DIST_CM  30        
+#define US_AVOID_PWM    254      
+#define LC_SPEED        -90   // 속도는 전진 방향 통일 (음수)
+
+// ★ Team 2의 가변저항 값 (높은 값이 왼쪽 - Team 1과 반대!!)
+const int AVOID_ADC_LEFT = 650;   
+const int AVOID_ADC_CENTER = 580;
+const int AVOID_ADC_RIGHT = 510;
+
+// ===================== [공통] 핀 맵 (Pin Map) =====================
+const uint8_t L_PWM = 5, L_IN1 = 7, L_IN2 = 8;
+const uint8_t R_PWM = 6, R_IN1 = 9, R_IN2 = 10;
+const uint8_t STEER_PWM = 12, STEER_IN1 = 13, STEER_IN2 = 4;
+const uint8_t STEER_POT_PIN = A0;
+
+const uint8_t US_L_SIDE_TRIG = 50, US_L_SIDE_ECHO = 51;
+const uint8_t US_R_SIDE_TRIG = 26, US_R_SIDE_ECHO = 27;
+
+// ===================== 전역 변수 =====================
+enum SysMode { MODE_LANE_DRIVE, MODE_AVOID_LEFT, MODE_AVOID_RIGHT, MODE_IDLE };
+SysMode currentMode = MODE_LANE_DRIVE; // 시작은 차선 주행 모드
+
+int cmdSpeed = 0, cmdSteerTarget = 0;
+unsigned long maneuverStartTime = 0;
+int lastError = 0; 
+
+static char lineBuf[80];
+static uint8_t lineLen = 0;
+
+// ===================== 유틸리티 함수 =====================
+static inline int clampInt(int v, int lo, int hi) { return (v < lo) ? lo : (v > hi ? hi : v); }
+
+// ★★★ [핵심 수정 1] 모드에 따라 ADC 읽는 방식도 다르게 적용 ★★★
+int readSteerPos() {
+  int adc = analogRead(STEER_POT_PIN);
+
+  if (currentMode == MODE_LANE_DRIVE || currentMode == MODE_IDLE) {
+    // [TEAM 1 방식] 낮은 ADC가 왼쪽 (-100 ~ 100)
+    if (adc <= LANE_ADC_CENTER) return map(adc, LANE_ADC_LEFT, LANE_ADC_CENTER, -100, 0);
+    else return map(adc, LANE_ADC_CENTER, LANE_ADC_RIGHT, 0, 100);
+  } 
+  else {
+    // [TEAM 2 방식] 높은 ADC가 왼쪽 (-100 ~ 100)
+    if (adc >= AVOID_ADC_CENTER) return map(adc, AVOID_ADC_LEFT, AVOID_ADC_CENTER, -100, 0);
+    else return map(adc, AVOID_ADC_CENTER, AVOID_ADC_RIGHT, 0, 100);
+  }
+}
+
+// 통합 모터 제어 함수 (기본: 양수면 IN1 HIGH)
+void setMotor(int pwmPin, int in1Pin, int in2Pin, int cmd) {
+  cmd = clampInt(cmd, -255, 255);
+  // Team 1 기준 전진/우회전 로직 (IN1=HIGH, IN2=LOW)
+  if (cmd > 0) { digitalWrite(in1Pin, HIGH); digitalWrite(in2Pin, LOW); analogWrite(pwmPin, cmd); }
+  else if (cmd < 0) { digitalWrite(in1Pin, LOW); digitalWrite(in2Pin, HIGH); analogWrite(pwmPin, -cmd); }
+  else { digitalWrite(in1Pin, LOW); digitalWrite(in2Pin, LOW); analogWrite(pwmPin, 0); }
+}
+
+// ===================== [TEAM 1] 조향 제어 로직 =====================
+void controlSteer_LaneMode(int target) {
+  int current = readSteerPos(); // Team 1 ADC 값으로 읽음
+  int error = target - current;
+
+  if (abs(error) <= LANE_DEADZONE) {
+    setMotor(STEER_PWM, STEER_IN1, STEER_IN2, 0);
+    return;
+  }
+  
+  // KP 값 적용
+  int pwm = (int)(error * LANE_KP);
+  
+  // 최소 PWM 보정
+  if (pwm > 0) { if (pwm < LANE_MIN_PWM) pwm = LANE_MIN_PWM; } 
+  else { if (pwm > -LANE_MIN_PWM) pwm = -LANE_MIN_PWM; }
+  
+  pwm = clampInt(pwm, -LANE_MAX_PWM, LANE_MAX_PWM);
+
+  // Team 1은 양수 PWM일 때 오른쪽으로 간다고 가정 (IN1 HIGH)
+  setMotor(STEER_PWM, STEER_IN1, STEER_IN2, pwm);
+}
+
+// ===================== [TEAM 2] 조향 제어 로직 =====================
+void controlSteer_AvoidMode(int target) {
+  int current = readSteerPos(); // Team 2 ADC 값으로 읽음
+  int error = target - current;
+  
+  float Kp = AVOID_KP; 
+  float Kd = AVOID_KD; 
+  int derivative = error - lastError; 
+  lastError = error; 
+
+  int pwm = (error * Kp) + (derivative * Kd);
+  pwm = constrain(pwm, -255, 255);
+  
+  if (abs(error) < 5) { pwm = 0; lastError = 0; }
+
+  // ★★★ [핵심 수정 2] Team 2 코드는 모터 방향 제어도 Team 1과 반대였음 ★★★
+  // Team 2 원본: pwm > 0 일 때 IN1=LOW, IN2=HIGH (Team 1과 반대)
+  // 따라서 통합 setMotor를 쓸 때는 부호를 뒤집어서(-pwm) 보내야 Team 2 의도대로 움직임
+  setMotor(STEER_PWM, STEER_IN1, STEER_IN2, -pwm); 
+}
+
+// ===================== 명령 처리 =====================
+void handleLine(char* s) {
+  char* cmd = strtok(s, " \t\r\n");
+  if (!cmd) return;
+  
+  bool isAvoiding = (currentMode == MODE_AVOID_LEFT || currentMode == MODE_AVOID_RIGHT);
+
+  if (strcmp(cmd, "S") == 0) {
+    if (!isAvoiding) {
+       char* sp = strtok(nullptr, " ");
+       char* st = strtok(nullptr, " ");
+       if (sp && st) {
+          cmdSpeed = atoi(sp); 
+          cmdSteerTarget = atoi(st);
+          currentMode = MODE_LANE_DRIVE; // Team 1 파라미터 적용
+       }
+    }
+  } 
+  else if (strcmp(cmd, "L") == 0) {
+    currentMode = MODE_AVOID_LEFT; // Team 2 파라미터 적용
+    maneuverStartTime = millis();
+  }
+  else if (strcmp(cmd, "R") == 0) {
+    currentMode = MODE_AVOID_RIGHT; // Team 2 파라미터 적용
+    maneuverStartTime = millis();
+  }
+  else if (strcmp(cmd, "F") == 0) {
+    if (!isAvoiding) currentMode = MODE_LANE_DRIVE; 
+  }
+  else if (strcmp(cmd, "STOP") == 0) {
+    currentMode = MODE_IDLE;
+  }
+}
+
+// ===================== 메인 루프 =====================
+void setup() {
+  Serial.begin(115200);
+  pinMode(L_PWM, OUTPUT); pinMode(L_IN1, OUTPUT); pinMode(L_IN2, OUTPUT);
+  pinMode(R_PWM, OUTPUT); pinMode(R_IN1, OUTPUT); pinMode(R_IN2, OUTPUT);
+  pinMode(STEER_PWM, OUTPUT); pinMode(STEER_IN1, OUTPUT); pinMode(STEER_IN2, OUTPUT);
+  
+  pinMode(US_L_SIDE_TRIG, OUTPUT); pinMode(US_L_SIDE_ECHO, INPUT);
+  pinMode(US_R_SIDE_TRIG, OUTPUT); pinMode(US_R_SIDE_ECHO, INPUT);
+  
+  Serial.println(F("INTEGRATED READY - DUAL PARAMETERS"));
+}
+
+void loop() {
+  while (Serial.available() > 0) {
+    char c = Serial.read();
+    if (c == '\n') { lineBuf[lineLen] = 0; handleLine(lineBuf); lineLen = 0; }
+    else if (lineLen < 79) lineBuf[lineLen++] = c;
+  }
+
+  if (currentMode == MODE_IDLE) {
+    setMotor(L_PWM, L_IN1, L_IN2, 0);
+    setMotor(R_PWM, R_IN1, R_IN2, 0);
+    setMotor(STEER_PWM, STEER_IN1, STEER_IN2, 0);
+  }
+  else if (currentMode == MODE_LANE_DRIVE) {
+    // [TEAM 1 모드] Team 1 ADC 및 제어 로직 사용
+    setMotor(L_PWM, L_IN1, L_IN2, cmdSpeed);
+    setMotor(R_PWM, R_IN1, R_IN2, cmdSpeed);
+    controlSteer_LaneMode(cmdSteerTarget);
+  }
+  else if (currentMode == MODE_AVOID_LEFT || currentMode == MODE_AVOID_RIGHT) {
+    // [TEAM 2 모드] Team 2 ADC 및 제어 로직 사용
+    unsigned long dt = millis() - maneuverStartTime;
+    
+    // 속도: Team 2도 Team 1과 같은 방향(음수)으로 전진하게 수정됨
+    setMotor(L_PWM, L_IN1, L_IN2, LC_SPEED);
+    setMotor(R_PWM, R_IN1, R_IN2, LC_SPEED);
+    
+    int steerTarget = 0;
+    if (currentMode == MODE_AVOID_LEFT) {
+       if (dt < LC_TURN_TIME) steerTarget = -LC_TURN_PWM;      
+       else if (dt < LC_TOTAL_TIME) steerTarget = LC_CORRECT_PWM; 
+       else { currentMode = MODE_LANE_DRIVE; } 
+    } 
+    else { 
+       if (dt < LC_TURN_TIME) steerTarget = LC_TURN_PWM;
+       else if (dt < LC_TOTAL_TIME) steerTarget = -LC_CORRECT_PWM;
+       else { currentMode = MODE_LANE_DRIVE; }
+    }
+    controlSteer_AvoidMode(steerTarget);
+  }
+}
