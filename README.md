@@ -208,6 +208,12 @@ This project was developed by a five-member team.
 
 ---
 
+## Award
+
+This project received the Encouragement Prize in the competition.
+
+---
+
 ## Repository Status
 
 This README reflects the current public snapshot of the repository. It documents the code and artifacts that are already included here, without assuming unpublished hardware specs, team metadata, or competition results.
