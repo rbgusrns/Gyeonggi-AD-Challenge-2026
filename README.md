@@ -211,7 +211,6 @@ This project was developed by a five-member team.
 ## Achievements
 
 - Encouragement Prize, Gyeonggi AD Challenge 2026
-- Developed and presented by a five-member student team
 
 ---
 
