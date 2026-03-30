@@ -210,7 +210,7 @@ This project was developed by a five-member team.
 
 ## Achievements
 
-- 2026 경기도 대학생 자율주행 경진대회 장려상
+- Encouragement Award, 2026 Gyeonggi Province Autonomous Driving Competition for University Students
 
 ---
 
