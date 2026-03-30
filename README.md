@@ -208,9 +208,10 @@ This project was developed by a five-member team.
 
 ---
 
-## Award
+## Achievements
 
-This project received the Encouragement Prize in the competition.
+- Encouragement Prize, Gyeonggi AD Challenge 2026
+- Developed and presented by a five-member student team
 
 ---
 
