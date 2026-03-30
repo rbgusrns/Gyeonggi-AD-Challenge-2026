@@ -210,9 +210,7 @@ This project was developed by a five-member team.
 
 ## Achievements
 
-- Encouragement Prize, 2026 Gyeonggi-do University Student Autonomous Driving Challenge
 - 2026 경기도 대학생 자율주행 경진대회 장려상
-- Developed and presented by a five-member student team
 
 ---
 
