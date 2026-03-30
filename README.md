@@ -9,7 +9,7 @@ Vision-based lane following, traffic-light awareness, and LiDAR obstacle avoidan
 
 <br />
 
-<img src="./Collect/data/images/img_20260127_152704_124520.jpg" alt="raw driving dataset preview" width="88%" />
+<img src="./Poster.jpg" alt="project poster" width="88%" />
 
 <br />
 <br />
