@@ -6,7 +6,7 @@
 
 Vision-based lane following, traffic-light awareness, and LiDAR obstacle avoidance built for a
 2026 autonomous driving competition project.
-
+ 
 <br />
 
 <img src="./Poster.jpg" alt="project poster" width="88%" />
